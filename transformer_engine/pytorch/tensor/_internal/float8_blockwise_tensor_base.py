@@ -73,8 +73,6 @@ class Float8BlockwiseQTensorBase:
     ) -> Tuple[list[Optional[torch.Tensor]], Float8BlockwiseQTensorBase]:
         """Prepare the tensor base for saving for backward"""
         tensors = [self._rowwise_data, self._columnwise_data]
-        self._rowwise_data = None
-        self._columnwise_data = None
         return tensors, self
 
     def restore_from_saved(
