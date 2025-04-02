@@ -315,7 +315,7 @@ class FusedAdam(torch.optim.Optimizer):
             unscaled = state[state_name]
         elif dtype == torch.bfloat16:
             assert state[state_name].dtype == torch.bfloat16
-            unscaled = state[state_name]
+            unscaled = state[state_name].float()
         else:
             raise RuntimeError(f"Dtype of {state_name} can only be fp8/fp16/bf16/fp32.")
         return unscaled
