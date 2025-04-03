@@ -667,7 +667,7 @@ class GroupedLinear(TransformerEngineBaseModule):
                     for i in range(self.num_gemms)
                 ]
                 for i in range(self.num_gemms):
-                    input_quantizers[i].internal = True
+                    input_quantizers[i].internal = False
                 weight_quantizers = [
                     self.quantizers["scaling_fwd"][
                         self._offsets["weight"] + i * self._num_fp8_tensors_per_gemm["fwd"]
