@@ -82,6 +82,7 @@ class _GroupedLinear(torch.autograd.Function):
         module,
         skip_fp8_weight_update,
         save_original_input,
+        fine_grained_activation_offloading,
         *weights_and_biases,
     ) -> torch.Tensor:
         # pylint: disable=missing-function-docstring
@@ -211,6 +212,30 @@ class _GroupedLinear(torch.autograd.Function):
                     if isinstance(weight, QuantizedTensorBase):
                         weight.update_usage(columnwise_usage=True)
 
+            for i in range(num_gemms):
+                weights[i].offloading_activation = False
+                weights_fp8[i].offloading_activation = False
+                biases[i].offloading_activation = False
+            ctx.fine_grained_activation_offloading = fine_grained_activation_offloading
+
+            if fine_grained_activation_offloading and cpu_offloading:
+                raise ValueError(
+                    f"Do not use fine_grained_activation_offloading and cpu_offloading at the same"
+                    f" time."
+                )
+
+            if (
+                fine_grained_activation_offloading
+                and weights[0].requires_grad
+                and fuse_wgrad_accumulation
+            ):
+                grad_added_to_main_grad_list = []
+                for weight in weights:
+                    if weight.requires_grad and hasattr(weight, "grad_added_to_main_grad"):
+                        grad_added_to_main_grad_list.append(weight.grad_added_to_main_grad)
+                        weight.grad_added_to_main_grad = True
+                ctx.grad_added_to_main_grad_list = grad_added_to_main_grad_list
+
             tensors_to_save, tensor_objects = prepare_for_saving(
                 *inputmats,
                 *weights_fp8,
@@ -273,11 +298,15 @@ class _GroupedLinear(torch.autograd.Function):
             biases = saved_tensors[3 * N : 4 * N]
             main_grads = [main_grad_func() for main_grad_func in ctx.main_grad_funcs]
 
-            if ctx.cpu_offloading and ctx.fuse_wgrad_accumulation:
+            if (
+                ctx.cpu_offloading or ctx.fine_grained_activation_offloading
+            ) and ctx.fuse_wgrad_accumulation:
                 for i in range(ctx.num_gemms):
-                    w = torch.nn.Parameter(weights[i], weights[i].requires_grad)
-                    w.main_grad = main_grads[i]
-                    weights[i] = w
+                    if not ctx.cpu_offloading:
+                        w = torch.nn.Parameter(weights[i], weights[i].requires_grad)
+                        weights[i] = w
+                    weights[i].main_grad = main_grads[i]
+                    weights[i].grad_added_to_main_grad = ctx.grad_added_to_main_grad_list[i]
 
             # Preprocess grad output
             grad_output_view = grad_output.contiguous().view(-1, grad_output.shape[-1])
@@ -480,6 +509,7 @@ class _GroupedLinear(torch.autograd.Function):
             None,
             None,
             None,
+            None,
             *wgrad_list,
             *grad_biases,
         )
@@ -561,6 +591,7 @@ class GroupedLinear(TransformerEngineBaseModule):
         ub_overlap_rs: bool = False,
         ub_overlap_ag: bool = False,
         ub_name: Optional[str] = None,
+        fine_grained_activation_offloading: bool = False,
         delay_wgrad_compute: bool = False,
         save_original_input: bool = False,
     ) -> None:
@@ -583,6 +614,8 @@ class GroupedLinear(TransformerEngineBaseModule):
         ), "GroupedLinear doesn't support Userbuffer overlap."
         self.get_rng_state_tracker = get_rng_state_tracker
         self.rng_tracker_name = rng_tracker_name
+
+        self.fine_grained_activation_offloading = fine_grained_activation_offloading
 
         self.wgrad_store = WeightGradStore(delay_wgrad_compute)
 
@@ -807,6 +840,7 @@ class GroupedLinear(TransformerEngineBaseModule):
                 self,
                 skip_fp8_weight_update,
                 self.save_original_input,
+                self.fine_grained_activation_offloading,
                 *weight_tensors,
                 *bias_tensors,
             )
