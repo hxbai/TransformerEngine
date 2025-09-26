@@ -532,7 +532,7 @@ class _Linear(torch.autograd.Function):
                 if ctx.has_grad_added_to_main_grad:
                     weight = ctx.weight_object
                     if ctx.fine_grained_activation_offloading:
-                        weight.grad_added_to_main_grad = ctx.grad_added_to_main_gradt
+                        weight.grad_added_to_main_grad = ctx.grad_added_to_main_grad
                 if ctx.requires_wgrad and ctx.fuse_wgrad_accumulation:
                     weight.main_grad = main_grad
 
